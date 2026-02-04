@@ -57,22 +57,6 @@ async function run() {
     console.log("✅ MongoDB connected successfully");
 
     // 🔹 POST /users → user data insert
-    // app.post('/user', async (req, res) => {
-    //   const userData = req.body; // name, email, photoURL, role
-    //   if (!userData.email) return res.status(400).send({ message: 'Email is required' });
-
-    //   try {
-    //     const existingUser = await userCollection.findOne({ email: userData.email });
-    //     if (existingUser) return res.status(409).send({ message: 'User already exists' });
-
-    //     const result = await userCollection.insertOne(userData);
-    //     res.status(201).send({ message: 'User added', userId: result.insertedId });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).send({ message: 'Failed to add user' });
-    //   }
-    // });
-
     app.post('/user', async (req, res) => {
   const userData = req.body;
 
@@ -109,14 +93,14 @@ async function run() {
 });
 
 // /Get All Users
-app.get("/user", async (req, res) => {
+app.get("/user",verifyFBToken, async (req, res) => {
   const users = await userCollection.find().toArray();
   res.send(users);
 });
 
 
 //Update Role//
-app.patch("/user/role/:id", async (req, res) => {
+app.patch("/user/role/:id",verifyFBToken, async (req, res) => {
   const id = req.params.id;
   const role = req.body.role;
 
@@ -128,7 +112,7 @@ app.patch("/user/role/:id", async (req, res) => {
 });
 
 //Update Status
-app.patch("/user/status/:id", async (req, res) => {
+app.patch("/user/status/:id",verifyFBToken, async (req, res) => {
   const id = req.params.id;
   const status = req.body.status;
 
@@ -139,6 +123,13 @@ app.patch("/user/status/:id", async (req, res) => {
 
   res.send(result);
 });
+
+// GET /user/:email/role → return role as JSON
+    app.get('/user/:email/role', verifyFBToken, async (req,res)=>{
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email });
+      res.send({ role: user?.role || 'user' }); // JSON format
+    });
 
 
 
