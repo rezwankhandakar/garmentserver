@@ -3,7 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const admin = require("firebase-admin");
 
 const app = express();
@@ -52,26 +52,95 @@ async function run() {
   try {
     await client.connect();
     const db = client.db('garmentDB');
-    const userCollection = db.collection('userscol');
+    const userCollection = db.collection('user');
 
     console.log("✅ MongoDB connected successfully");
 
     // 🔹 POST /users → user data insert
-    app.post('/userscol', async (req, res) => {
-      const userData = req.body; // name, email, photoURL, role
-      if (!userData.email) return res.status(400).send({ message: 'Email is required' });
+    // app.post('/user', async (req, res) => {
+    //   const userData = req.body; // name, email, photoURL, role
+    //   if (!userData.email) return res.status(400).send({ message: 'Email is required' });
 
-      try {
-        const existingUser = await userCollection.findOne({ email: userData.email });
-        if (existingUser) return res.status(409).send({ message: 'User already exists' });
+    //   try {
+    //     const existingUser = await userCollection.findOne({ email: userData.email });
+    //     if (existingUser) return res.status(409).send({ message: 'User already exists' });
 
-        const result = await userCollection.insertOne(userData);
-        res.status(201).send({ message: 'User added', userId: result.insertedId });
-      } catch (err) {
-        console.error(err);
-        res.status(500).send({ message: 'Failed to add user' });
-      }
+    //     const result = await userCollection.insertOne(userData);
+    //     res.status(201).send({ message: 'User added', userId: result.insertedId });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).send({ message: 'Failed to add user' });
+    //   }
+    // });
+
+    app.post('/user', async (req, res) => {
+  const userData = req.body;
+
+  if (!userData.email) {
+    return res.status(400).send({ message: 'Email is required' });
+  }
+
+  try {
+    const existingUser = await userCollection.findOne({
+      email: userData.email
     });
+
+    // ✅ User থাকলে শুধু success response
+    if (existingUser) {
+      return res.send({
+        message: "User already exists",
+        inserted: false
+      });
+    }
+
+    // ✅ User না থাকলে insert
+    const result = await userCollection.insertOne(userData);
+
+    res.send({
+      message: "User inserted successfully",
+      inserted: true,
+      userId: result.insertedId
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+// /Get All Users
+app.get("/user", async (req, res) => {
+  const users = await userCollection.find().toArray();
+  res.send(users);
+});
+
+
+//Update Role//
+app.patch("/user/role/:id", async (req, res) => {
+  const id = req.params.id;
+  const role = req.body.role;
+
+  const result = await userCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { role } }
+  );
+  res.send(result);
+});
+
+//Update Status
+app.patch("/user/status/:id", async (req, res) => {
+  const id = req.params.id;
+  const status = req.body.status;
+
+  const result = await userCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { status } }
+  );
+
+  res.send(result);
+});
+
+
 
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
