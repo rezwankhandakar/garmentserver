@@ -140,7 +140,10 @@ app.patch("/user/status/:id",verifyFBToken, async (req, res) => {
     app.get('/user/:email/role', verifyFBToken, async (req,res)=>{
       const email = req.params.email;
       const user = await userCollection.findOne({ email });
-      res.send({ role: user?.role || 'user' }); // JSON format
+      res.send({
+  role: user?.role || 'user',
+  status: user?.status || 'pending'
+});
     });
 
 
