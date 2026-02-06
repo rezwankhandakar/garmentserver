@@ -341,6 +341,104 @@ app.patch("/bookings/payment-success/:id", verifyFBToken, async (req, res) => {
 });
 
 
+// ---------------- Update product show on home ----------------
+app.patch("/products/show-home/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+  const { showHome } = req.body;
+
+  if (typeof showHome !== "boolean") {
+    return res.status(400).send({ message: "Invalid value for showHome" });
+  }
+
+  try {
+    const result = await productCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { showHome } }
+    );
+
+    res.send({ success: true, message: "Product updated", result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to update product" });
+  }
+});
+
+// ---------------- Delete product ----------------
+app.delete("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const result = await productCollection.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).send({ success: false, message: "Product not found" });
+    }
+
+    res.send({ success: true, message: "Product deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to delete product" });
+  }
+});
+
+// ---------------- Get all products ----------------
+app.get("/products", verifyFBToken, verifyAdmin, async (req, res) => {
+  try {
+    const products = await productCollection.find().sort({ createdAt: -1 }).toArray();
+    res.send(products);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to fetch products" });
+  }
+});
+
+
+// ---------------- Update product ----------------
+app.patch("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+  const {
+    title,
+    price,
+    category,
+    description,
+    paymentOption,
+    images,
+    demoVideo,
+  } = req.body;
+
+  if (!title || !price || !category || !images?.length) {
+    return res.status(400).send({ success: false, message: "Missing required fields" });
+  }
+
+  try {
+    const updatedData = {
+      title,
+      price: Number(price),
+      category,
+      description: description || "",
+      paymentOption: paymentOption || "",
+      images: Array.isArray(images) ? images : images.split(",").map(img => img.trim()),
+      demoVideo: demoVideo || "",
+      updatedAt: new Date(),
+    };
+
+    const result = await productCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+
+    if (result.matchedCount === 0)
+      return res.status(404).send({ success: false, message: "Product not found" });
+
+    res.send({ success: true, message: "Product updated", result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to update product", error: err.message });
+  }
+});
+
+
+
     app.get("/", (req, res) => res.send("🚀 Server running"));
   } catch (err) {
     console.error(err);
