@@ -401,7 +401,7 @@ app.get("/products",verifyFBToken, async (req, res) => {
 
 
 // ---------------- Update product ----------------
-app.patch("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+app.patch("/products/:id", verifyFBToken, async (req, res) => {
   const id = req.params.id;
   const {
     title,
@@ -443,6 +443,62 @@ app.patch("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to update product", error: err.message });
   }
 });
+
+
+// ---------------- Update single product (Manager/Admin) ----------------
+app.patch("/products/update/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+  const {
+    title,
+    price,
+    category,
+    description,
+    paymentOption,
+    images,
+    demoVideo,
+  } = req.body;
+
+  // 🔹 Validation
+  if (!title || !price || !category || !images?.length) {
+    return res
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  }
+
+  try {
+    const updatedData = {
+      title,
+      price: Number(price),
+      category,
+      description: description || "",
+      paymentOption: paymentOption || "",
+      images: Array.isArray(images) ? images : images.split(",").map((img) => img.trim()),
+      demoVideo: demoVideo || "",
+      updatedAt: new Date(),
+    };
+
+    // 🔹 Update product
+    const result = await productCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+
+    if (result.matchedCount === 0)
+      return res
+        .status(404)
+        .send({ success: false, message: "Product not found" });
+
+    res.send({ success: true, message: "Product updated successfully", result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({
+      success: false,
+      message: "Failed to update product",
+      error: err.message,
+    });
+  }
+});
+
 
 
 // ---------------- Get all orders (Admin) ----------------
@@ -490,7 +546,7 @@ app.get("/orders", verifyFBToken, verifyAdmin, async (req, res) => {
 
 
 // ---------------- Get all pending orders (Admin) ----------------
-app.get("/orders/pending", verifyFBToken, verifyAdmin, async (req, res) => {
+app.get("/orders/pending", verifyFBToken, async (req, res) => {
   try {
     const orders = await bookingCollection.aggregate([
       { $match: { status: "pending" } }, // শুধু pending orders
@@ -523,6 +579,47 @@ app.get("/orders/pending", verifyFBToken, verifyAdmin, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send({ success: false, message: "Failed to fetch pending orders", error: err.message });
+  }
+});
+
+
+// Approve order
+app.patch("/orders/approve/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const order = await bookingCollection.findOne({ _id: new ObjectId(id) });
+    if (!order) return res.status(404).send({ success: false, message: "Order not found" });
+
+    const result = await bookingCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: "approved", approvedAt: new Date() } }
+    );
+
+    res.send({ success: true, message: "Order approved", result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to approve order", error: err.message });
+  }
+});
+
+// Reject order
+app.patch("/orders/reject/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const order = await bookingCollection.findOne({ _id: new ObjectId(id) });
+    if (!order) return res.status(404).send({ success: false, message: "Order not found" });
+
+    const result = await bookingCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: "rejected", rejectedAt: new Date() } }
+    );
+
+    res.send({ success: true, message: "Order rejected", result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to reject order", error: err.message });
   }
 });
 
