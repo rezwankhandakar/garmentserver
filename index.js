@@ -43,9 +43,9 @@ async function run() {
   try {
     await client.connect();
     const db = client.db("garmentDB");
-    userCollection = db.collection("user");
-    productCollection = db.collection("products");
-    bookingCollection = db.collection("bookings");
+  userCollection = db.collection("user");
+  productCollection = db.collection("products");
+   bookingCollection = db.collection("bookings");
 
     console.log("✅ MongoDB connected");
 
@@ -64,6 +64,7 @@ async function run() {
       }
     };
 
+
     // ---------------- Verify Admin ----------------
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
@@ -81,6 +82,7 @@ async function run() {
         return res.status(403).send({ message: "Forbidden" });
       next();
     };
+
 
     // =====================================================
     // 👤 USERS API
@@ -162,6 +164,7 @@ async function run() {
       res.send({ success: true, insertedId: result.insertedId });
     });
 
+    // ---------------- Get all products for home----------------
     app.get("/products/home", async (req, res) => {
       try {
         const limit = parseInt(req.query.limit) || 6;
@@ -176,7 +179,8 @@ async function run() {
       }
     });
 
-    app.get("/products", async (req, res) => {
+    // ---------------- Get all products for public----------------
+    app.get("/products/public", async (req, res) => {
       try {
         const products = await productCollection.find({ status: "active" }).sort({ createdAt: -1 }).toArray();
         res.send(products);
@@ -185,6 +189,7 @@ async function run() {
       }
     });
 
+     // ---------------- Get single products for details----------------
     app.get("/products/:id", async (req, res) => {
       const id = req.params.id;
       try {
@@ -364,7 +369,7 @@ app.patch("/products/show-home/:id", verifyFBToken, verifyAdmin, async (req, res
 });
 
 // ---------------- Delete product ----------------
-app.delete("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+app.delete("/products/:id",verifyFBToken, async (req, res) => {
   const id = req.params.id;
 
   try {
@@ -381,8 +386,8 @@ app.delete("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
   }
 });
 
-// ---------------- Get all products ----------------
-app.get("/products", verifyFBToken, verifyAdmin, async (req, res) => {
+// ---------------- Get all products for admin----------------
+app.get("/products",verifyFBToken, async (req, res) => {
   try {
     const products = await productCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(products);
@@ -391,6 +396,8 @@ app.get("/products", verifyFBToken, verifyAdmin, async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to fetch products" });
   }
 });
+
+
 
 
 // ---------------- Update product ----------------
@@ -437,6 +444,87 @@ app.patch("/products/:id", verifyFBToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// ---------------- Get all orders (Admin) ----------------
+app.get("/orders", verifyFBToken, verifyAdmin, async (req, res) => {
+  try {
+    const statusFilter = req.query.status;
+
+    const matchStage = {};
+    if (statusFilter) matchStage.status = statusFilter.toLowerCase();
+
+    const orders = await bookingCollection.aggregate([
+      { $match: matchStage },
+
+      { $addFields: { productId: { $toObjectId: "$productId" } } },
+
+      {
+        $lookup: {
+          from: "user",
+          localField: "email",
+          foreignField: "email",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      {
+        $lookup: {
+          from: "products",
+          localField: "productId",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: "$product" },
+
+      { $sort: { createdAt: -1 } },
+    ]).toArray();
+
+    res.send(orders);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to fetch orders", error: err.message });
+  }
+});
+
+
+// ---------------- Get all pending orders (Admin) ----------------
+app.get("/orders/pending", verifyFBToken, verifyAdmin, async (req, res) => {
+  try {
+    const orders = await bookingCollection.aggregate([
+      { $match: { status: "pending" } }, // শুধু pending orders
+      { $addFields: { productId: { $toObjectId: "$productId" } } },
+
+      {
+        $lookup: {
+          from: "user",
+          localField: "email",
+          foreignField: "email",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      {
+        $lookup: {
+          from: "products",
+          localField: "productId",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: "$product" },
+
+      { $sort: { createdAt: -1 } },
+    ]).toArray();
+
+    res.send(orders);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to fetch pending orders", error: err.message });
+  }
+});
 
 
     app.get("/", (req, res) => res.send("🚀 Server running"));
