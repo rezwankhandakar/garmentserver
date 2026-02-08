@@ -1,6 +1,6 @@
 
 
-// server.js
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -12,7 +12,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 
 const app = express();
-const port = process.env.PORT || 5000;
+
 
 // ---------------- Firebase Admin ----------------
 admin.initializeApp({
@@ -632,6 +632,4 @@ app.patch("/orders/reject/:id", verifyFBToken, async (req, res) => {
 
 run();
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
-});
+module.exports = app;
