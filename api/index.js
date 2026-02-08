@@ -1,34 +1,30 @@
-
-
-
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 
 const app = express();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-
-// ---------------- Firebase Admin ----------------
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  }),
-});
+// ---------------- Firebase Admin Initialization ----------------
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
+  });
+}
 
 // ---------------- Middleware ----------------
 app.use(cors());
 app.use(express.json());
 
-// ---------------- MongoDB ----------------
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fu1n5ti.mongodb.net/garmentOpsDB?retryWrites=true&w=majority`;
+// ---------------- MongoDB Setup ----------------
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fu1n5ti.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -37,54 +33,64 @@ const client = new MongoClient(uri, {
   },
 });
 
-let userCollection, productCollection, bookingCollection;
+let db, userCollection, productCollection, bookingCollection;
 
-async function run() {
-  try {
+// MongoDB কানেকশন কানেক্ট করার ফাংশন
+async function connectDB() {
+  if (!db) {
     await client.connect();
-    const db = client.db("garmentDB");
-  userCollection = db.collection("user");
-  productCollection = db.collection("products");
-   bookingCollection = db.collection("bookings");
-
+    db = client.db("garmentDB");
+    userCollection = db.collection("user");
+    productCollection = db.collection("products");
+    bookingCollection = db.collection("bookings");
     console.log("✅ MongoDB connected");
+  }
+  return { userCollection, productCollection, bookingCollection };
+}
 
-    // ---------------- Firebase Token Verify ----------------
-    const verifyFBToken = async (req, res, next) => {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).send({ message: "Unauthorized" });
+// Database Connection Middleware (Vercel-এর জন্য জরুরি)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("Database connection failed:", err);
+    res.status(500).send({ message: "Internal Server Error: Database Connection Failed" });
+  }
+});
 
-      try {
-        const token = authHeader.split(" ")[1];
-        const decoded = await admin.auth().verifyIdToken(token);
-        req.decoded_email = decoded.email;
-        next();
-      } catch (err) {
-        return res.status(401).send({ message: "Unauthorized" });
-      }
-    };
+// ---------------- Helper Middlewares ----------------
+const verifyFBToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).send({ message: "Unauthorized" });
 
+  try {
+    const token = authHeader.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.decoded_email = decoded.email;
+    next();
+  } catch (err) {
+    return res.status(401).send({ message: "Unauthorized" });
+  }
+};
 
-    // ---------------- Verify Admin ----------------
-    const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded_email;
-      const user = await userCollection.findOne({ email });
-      if (!user || user.role !== "admin") return res.status(403).send({ message: "Forbidden" });
-      next();
-    };
+const verifyAdmin = async (req, res, next) => {
+  const email = req.decoded_email;
+  const user = await userCollection.findOne({ email });
+  if (!user || user.role !== "admin") return res.status(403).send({ message: "Forbidden" });
+  next();
+};
 
-    // ---------------- Verify Manager ----------------
-    const verifyManager = async (req, res, next) => {
-      const email = req.decoded_email;
-      const user = await userCollection.findOne({ email });
-      if (!user) return res.status(401).send({ message: "Unauthorized" });
-      if (user.role !== "manager" || user.status !== "approved")
-        return res.status(403).send({ message: "Forbidden" });
-      next();
-    };
+const verifyManager = async (req, res, next) => {
+  const email = req.decoded_email;
+  const user = await userCollection.findOne({ email });
+  if (!user) return res.status(401).send({ message: "Unauthorized" });
+  if (user.role !== "manager" || user.status !== "approved")
+    return res.status(403).send({ message: "Forbidden" });
+  next();
+};
 
-
-    // =====================================================
+/// =====================================================
     // 👤 USERS API
     // =====================================================
     app.post("/user", async (req, res) => {
@@ -623,13 +629,97 @@ app.patch("/orders/reject/:id", verifyFBToken, async (req, res) => {
   }
 });
 
+// Add tracking info
+app.patch("/orders/tracking/:id", verifyFBToken, verifyManager, async (req, res) => {
+  const id = req.params.id;
+  const { status, location, note, dateTime } = req.body;
 
-    app.get("/", (req, res) => res.send("🚀 Server running"));
+  if (!status || !dateTime) {
+    return res.status(400).send({ success: false, message: "Status and Date/Time are required" });
+  }
+
+  try {
+    const order = await bookingCollection.findOne({ _id: new ObjectId(id) });
+    if (!order) return res.status(404).send({ success: false, message: "Order not found" });
+
+    const trackingUpdate = {
+      status,
+      location: location || "",
+      note: note || "",
+      dateTime: new Date(dateTime),
+    };
+
+    const result = await bookingCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $push: { tracking: trackingUpdate } } // tracking is an array
+    );
+
+    res.send({ success: true, message: "Tracking info added", result });
   } catch (err) {
     console.error(err);
+    res.status(500).send({ success: false, message: "Failed to add tracking info", error: err.message });
   }
-}
+});
 
-run();
+
+
+// Get approved orders
+app.get("/orders/approved", verifyFBToken, verifyManager, async (req, res) => {
+  try {
+    const orders = await bookingCollection.aggregate([
+      { $match: { status: "approved" } },
+      { $addFields: { productId: { $toObjectId: "$productId" } } },
+      {
+        $lookup: {
+          from: "user",
+          localField: "email",
+          foreignField: "email",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "productId",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: "$product" },
+      { $sort: { approvedAt: -1 } },
+    ]).toArray();
+
+    res.send(orders);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to fetch approved orders", error: err.message });
+  }
+});
+
+
+app.get("/orders/track/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+
+  const order = await bookingCollection.findOne(
+    { _id: new ObjectId(id) },
+    { projection: { tracking: 1, currentLocation: 1, productName: 1 } }
+  );
+
+  res.send(order);
+});
+
+
+
+
+
+
+// Root API
+app.get("/", (req, res) => res.send("🚀 Garment Ops Server is running on Vercel"));
+
+// Error handling for unknown routes
+app.use((req, res) => {
+  res.status(404).send({ message: "Route not found" });
+});
 
 module.exports = app;
